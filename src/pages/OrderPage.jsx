@@ -15,6 +15,7 @@ export default function OrderPage() {
   const [cart, setCart] = useState([]); // [{ productId, name, price, quantity }]
   const [selectedCategory, setSelectedCategory] = useState('Tumu');
   const [paymentMethod, setPaymentMethod] = useState('CASH');
+  const [isStaffOrder, setIsStaffOrder] = useState(false);
   const [feedback, setFeedback] = useState(null); // { type: 'success'|'error', message }
   // Ayni siparisin yanlislikla iki kez gonderilmesine karsi (orn. cift
   // tiklama), backend'in idempotencyKey mekanizmasini kullaniyoruz. Basarili
@@ -69,6 +70,7 @@ export default function OrderPage() {
 
   function resetOrderSession() {
     setCart([]);
+    setIsStaffOrder(false);
     setIdempotencyKey(crypto.randomUUID());
   }
 
@@ -79,6 +81,7 @@ export default function OrderPage() {
         body: {
           paymentMethod,
           idempotencyKey,
+          isStaffOrder,
           items: cart.map((item) => ({ productId: item.productId, quantity: item.quantity })),
         },
       }),
@@ -188,6 +191,16 @@ export default function OrderPage() {
             ))}
           </div>
 
+          <button
+            onClick={() => setIsStaffOrder((prev) => !prev)}
+            className={`mb-4 flex items-center justify-between rounded-xl px-4 py-3 text-lg font-semibold transition ${
+              isStaffOrder ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <span>Personel Siparisi</span>
+            <span className="text-sm font-normal">{isStaffOrder ? 'Acik - Ucretsiz' : 'Kapali'}</span>
+          </button>
+
           <div className="mb-4">
             <span className="mb-1 block text-sm font-medium text-slate-600">Odeme Yontemi</span>
             <div className="flex gap-2">
@@ -209,7 +222,7 @@ export default function OrderPage() {
 
           <div className="mb-4 flex items-center justify-between text-2xl font-bold text-slate-800">
             <span>Toplam</span>
-            <span>{formatMoney(total)}</span>
+            <span>{isStaffOrder ? formatMoney(0) : formatMoney(total)}</span>
           </div>
 
           {feedback && (
