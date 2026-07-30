@@ -1,16 +1,42 @@
-# React + Vite
+# Airport Cafe — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Fare + klavye ile kullanılan, kafe içi bir POS (sipariş/mutfak/envanter/rapor) arayüzü. React + Vite + Tailwind ile yazıldı; [airport-cafe-backend](https://github.com/10urok10/airport-cafe-backend) adlı headless REST API'ye bağlanır — bu repo hiçbir veriyi kendi başına saklamaz, her şey backend üzerinden gelir.
 
-Currently, two official plugins are available:
+## Kurulum
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Önce backend'in ayrı bir yerde çalışıyor olması gerekir (bkz. backend repo'sunun kendi kurulum adımları).
 
-## React Compiler
+```bash
+npm install
+cp .env.example .env      # yoksa VITE_API_URL=http://localhost:3000 icerigiyle olustur
+npm run dev                # http://localhost:5173
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+`.env` içindeki `VITE_API_URL`, backend'in adresini gösterir. Backend farklı bir makinede/portta çalışıyorsa (LAN veya tünel üzerinden paylaşım gibi) bu değeri güncelleyip dev server'ı yeniden başlatmak gerekir — Vite, `.env` değişikliklerini yalnızca başlangıçta okur.
 
-## Expanding the Oxlint configuration
+## Komutlar
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+```bash
+npm run dev       # gelistirme sunucusu (HMR)
+npm run build     # production build (dist/)
+npm run preview   # build'i yerelde onizle
+npm run lint      # oxlint
+```
+
+## Sayfalar
+
+| Rota | Açıklama | Erişim |
+|---|---|---|
+| `/login` | PIN tuş takımıyla giriş | herkese açık |
+| `/orders` | Sipariş alma — ürüne tıkla, sepete eklenir, ödeme yöntemi seç, tamamla | tüm personel |
+| `/kitchen` | Mutfak ekranı: Bekleyen / Hazırlanıyor / Son Tamamlananlar, 5sn'de bir otomatik yenilenir | tüm personel |
+| `/inventory` | Stok listesi, stok düzeltme; malzeme ekleme/düzenleme sadece ADMIN | tüm personel (düzenleme ADMIN) |
+| `/products` | Ürün ve reçete (BOM) yönetimi | sadece ADMIN |
+| `/reports` | Günlük özet ciro/ödeme kırılımı, ürün kâr marjı raporu | sadece ADMIN |
+
+Personel yönetimi ekranı bilinçli olarak yok — kullanıcılar şu an sadece backend/DB tarafında yönetiliyor.
+
+## Notlar
+
+- Oturum (JWT + kullanıcı bilgisi) `localStorage`'da tutulur, sayfa yenilense de oturum düşmez.
+- `vite.config.js`'de `server.allowedHosts: true` var — bu, dev server'ı bir tünel (cloudflared/localtunnel) arkasından paylaşırken Vite'ın host-header kontrolüne takılmamak için eklendi.
