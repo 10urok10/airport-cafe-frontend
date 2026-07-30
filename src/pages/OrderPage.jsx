@@ -2,15 +2,12 @@ import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, ApiError } from '../api/client';
 import Header from '../components/Header';
+import { formatMoney } from '../utils/format';
 
 const PAYMENT_METHODS = [
   { value: 'CASH', label: 'Nakit' },
   { value: 'CARD', label: 'Kart' },
 ];
-
-function formatMoney(value) {
-  return Number(value).toFixed(2) + ' TL';
-}
 
 export default function OrderPage() {
   const queryClient = useQueryClient();

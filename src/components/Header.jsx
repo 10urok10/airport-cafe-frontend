@@ -4,6 +4,9 @@ import { useAuth } from '../context/AuthContext';
 const NAV_LINKS = [
   { to: '/orders', label: 'Siparis Al' },
   { to: '/kitchen', label: 'Mutfak' },
+  { to: '/inventory', label: 'Envanter' },
+  { to: '/products', label: 'Urunler', adminOnly: true },
+  { to: '/reports', label: 'Raporlar', adminOnly: true },
 ];
 
 export default function Header() {
@@ -14,7 +17,7 @@ export default function Header() {
       <div className="flex items-center gap-8">
         <h1 className="text-xl font-bold text-slate-800">Airport Cafe</h1>
         <nav className="flex gap-2">
-          {NAV_LINKS.map((link) => (
+          {NAV_LINKS.filter((link) => !link.adminOnly || user?.role === 'ADMIN').map((link) => (
             <NavLink
               key={link.to}
               to={link.to}
