@@ -37,8 +37,14 @@ function OrderCard({ order, actionLabel, onAction, onCancel, actionPending }) {
 
       <ul className="mb-3 text-slate-600">
         {order.items.map((item) => (
-          <li key={item.id}>
+          <li key={item.id} className="mb-1">
             {item.quantity}x {item.product.name}
+            {item.variant && ` (${item.variant.name})`}
+            {item.modifiers.length > 0 && (
+              <div className="pl-4 text-sm font-medium text-amber-600">
+                + {item.modifiers.map((m) => m.modifier.name).join(', ')}
+              </div>
+            )}
           </li>
         ))}
       </ul>
