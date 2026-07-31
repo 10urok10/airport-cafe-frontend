@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, ApiError } from '../api/client';
 import Header from '../components/Header';
+import Modal from '../components/Modal';
 import { formatMoney } from '../utils/format';
 
 const PAYMENT_METHODS = [
@@ -9,13 +10,21 @@ const PAYMENT_METHODS = [
   { value: 'CARD', label: 'Kart' },
 ];
 
+// Sepette bir kalemi tekil olarak tanimlayan anahtar: ayni urunun "Orta"su
+// ile "Buyuk"u ayri satirlar olmali, sadece productId'ye gore eslestirmek
+// bunlari yanlislikla birlestirirdi.
+function cartLineKey(productId, variantId) {
+  return `${productId}-${variantId ?? 'base'}`;
+}
+
 export default function OrderPage() {
   const queryClient = useQueryClient();
 
-  const [cart, setCart] = useState([]); // [{ productId, name, price, quantity }]
+  const [cart, setCart] = useState([]); // [{ productId, variantId, name, price, quantity }]
   const [selectedCategory, setSelectedCategory] = useState('Tumu');
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [isStaffOrder, setIsStaffOrder] = useState(false);
+  const [sizeModalProduct, setSizeModalProduct] = useState(null); // boy secimi bekleyen urun
   const [feedback, setFeedback] = useState(null); // { type: 'success'|'error', message }
   // Ayni siparisin yanlislikla iki kez gonderilmesine karsi (orn. cift
   // tiklama), backend'in idempotencyKey mekanizmasini kullaniyoruz. Basarili
@@ -41,29 +50,50 @@ export default function OrderPage() {
   const visibleProducts =
     selectedCategory === 'Tumu' ? products : products.filter((p) => p.category === selectedCategory);
 
+  // Urunun boy varyanti varsa direkt sepete eklemek yerine once boy sormak
+  // gerekir - "once Americano sec, sonra Orta mi Buyuk mu" akisi bunu saglar.
   function addToCart(product) {
     setFeedback(null);
+    if (product.variants && product.variants.length > 0) {
+      setSizeModalProduct(product);
+      return;
+    }
+    addLineToCart(product.id, null, product.name, product.price);
+  }
+
+  function addVariantToCart(product, variant) {
+    addLineToCart(product.id, variant.id, `${product.name} (${variant.name})`, variant.price);
+    setSizeModalProduct(null);
+  }
+
+  function addLineToCart(productId, variantId, name, price) {
     setCart((prev) => {
-      const existing = prev.find((item) => item.productId === product.id);
+      const existing = prev.find((item) => item.productId === productId && item.variantId === variantId);
       if (existing) {
         return prev.map((item) =>
-          item.productId === product.id ? { ...item, quantity: item.quantity + 1 } : item
+          item.productId === productId && item.variantId === variantId
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
         );
       }
-      return [...prev, { productId: product.id, name: product.name, price: product.price, quantity: 1 }];
+      return [...prev, { productId, variantId, name, price, quantity: 1 }];
     });
   }
 
-  function changeQuantity(productId, delta) {
+  function changeQuantity(productId, variantId, delta) {
     setCart((prev) =>
       prev
-        .map((item) => (item.productId === productId ? { ...item, quantity: item.quantity + delta } : item))
+        .map((item) =>
+          item.productId === productId && item.variantId === variantId
+            ? { ...item, quantity: item.quantity + delta }
+            : item
+        )
         .filter((item) => item.quantity > 0)
     );
   }
 
-  function removeFromCart(productId) {
-    setCart((prev) => prev.filter((item) => item.productId !== productId));
+  function removeFromCart(productId, variantId) {
+    setCart((prev) => prev.filter((item) => !(item.productId === productId && item.variantId === variantId)));
   }
 
   const total = cart.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0);
@@ -82,7 +112,11 @@ export default function OrderPage() {
           paymentMethod,
           idempotencyKey,
           isStaffOrder,
-          items: cart.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+          items: cart.map((item) => ({
+            productId: item.productId,
+            variantId: item.variantId,
+            quantity: item.quantity,
+          })),
         },
       }),
     onSuccess: (data) => {
@@ -135,16 +169,27 @@ export default function OrderPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-                {visibleProducts.map((product) => (
-                  <button
-                    key={product.id}
-                    onClick={() => addToCart(product)}
-                    className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-white p-6 text-center shadow-sm transition hover:shadow-md hover:ring-2 hover:ring-indigo-400 active:scale-95"
-                  >
-                    <span className="text-lg font-semibold text-slate-800">{product.name}</span>
-                    <span className="text-xl font-bold text-indigo-600">{formatMoney(product.price)}</span>
-                  </button>
-                ))}
+                {visibleProducts.map((product) => {
+                  const hasVariants = product.variants && product.variants.length > 0;
+                  return (
+                    <button
+                      key={product.id}
+                      onClick={() => addToCart(product)}
+                      className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-white p-6 text-center shadow-sm transition hover:shadow-md hover:ring-2 hover:ring-indigo-400 active:scale-95"
+                    >
+                      <span className="text-lg font-semibold text-slate-800">{product.name}</span>
+                      {hasVariants ? (
+                        <span className="text-sm font-semibold text-indigo-600">
+                          {product.variants.length === 1
+                            ? formatMoney(product.variants[0].price)
+                            : `${formatMoney(product.variants[0].price)} - ${formatMoney(product.variants[product.variants.length - 1].price)}`}
+                        </span>
+                      ) : (
+                        <span className="text-xl font-bold text-indigo-600">{formatMoney(product.price)}</span>
+                      )}
+                    </button>
+                  );
+                })}
                 {visibleProducts.length === 0 && (
                   <p className="col-span-full text-slate-500">Bu kategoride urun yok.</p>
                 )}
@@ -160,27 +205,27 @@ export default function OrderPage() {
           <div className="mb-4 flex-1 overflow-y-auto">
             {cart.length === 0 && <p className="text-slate-400">Sepet bos. Urune tiklayin.</p>}
             {cart.map((item) => (
-              <div key={item.productId} className="mb-3 flex items-center justify-between gap-2">
+              <div key={cartLineKey(item.productId, item.variantId)} className="mb-3 flex items-center justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium text-slate-800">{item.name}</p>
                   <p className="text-sm text-slate-500">{formatMoney(item.price)}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => changeQuantity(item.productId, -1)}
+                    onClick={() => changeQuantity(item.productId, item.variantId, -1)}
                     className="h-8 w-8 rounded-lg bg-slate-100 text-lg font-bold text-slate-600 hover:bg-slate-200"
                   >
                     -
                   </button>
                   <span className="w-6 text-center font-semibold">{item.quantity}</span>
                   <button
-                    onClick={() => changeQuantity(item.productId, 1)}
+                    onClick={() => changeQuantity(item.productId, item.variantId, 1)}
                     className="h-8 w-8 rounded-lg bg-slate-100 text-lg font-bold text-slate-600 hover:bg-slate-200"
                   >
                     +
                   </button>
                   <button
-                    onClick={() => removeFromCart(item.productId)}
+                    onClick={() => removeFromCart(item.productId, item.variantId)}
                     className="ml-1 text-red-500 hover:text-red-700"
                     aria-label="Sil"
                   >
@@ -244,6 +289,23 @@ export default function OrderPage() {
           </button>
         </aside>
       </div>
+
+      {sizeModalProduct && (
+        <Modal title={`${sizeModalProduct.name} - Boy Secin`} onClose={() => setSizeModalProduct(null)}>
+          <div className="flex flex-col gap-3">
+            {sizeModalProduct.variants.map((variant) => (
+              <button
+                key={variant.id}
+                onClick={() => addVariantToCart(sizeModalProduct, variant)}
+                className="flex items-center justify-between rounded-xl bg-slate-100 px-5 py-4 text-lg font-semibold text-slate-700 transition hover:bg-indigo-600 hover:text-white active:scale-95"
+              >
+                <span>{variant.name}</span>
+                <span>{formatMoney(variant.price)}</span>
+              </button>
+            ))}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

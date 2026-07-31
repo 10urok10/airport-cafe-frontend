@@ -48,6 +48,10 @@ Every page fetches through `useQuery`/`useMutation` (`@tanstack/react-query`, si
 
 `OrderPage.jsx`'s "Personel Siparisi" toggle sends `isStaffOrder: true` on `POST /orders`. The backend zeroes the price and creates the order already `COMPLETED` (see backend `CLAUDE.md`), so it never shows up in `KitchenPage`'s `PENDING`/`PREPARING` columns — only briefly in "Son Tamamlananlar". The frontend's only job is to reflect that in the total (`isStaffOrder ? formatMoney(0) : formatMoney(total)`) and reset the toggle in `resetOrderSession()` after a successful submit, so it doesn't silently stay on for the next order.
 
+### Product size variants
+
+A product's `variants` array (from `GET /products`, already sorted cheapest-first by the backend) drives a two-step selection on `OrderPage.jsx`: clicking a product with `variants.length > 0` opens a size-picker `Modal` instead of adding straight to the cart; picking a size adds `{ productId, variantId, name: "Product (Size)", price: variant.price }` as its own cart line. Products without variants are unaffected — same single-click add as always. Cart lines are keyed by `productId + variantId` together (`cartLineKey`, and the same pair threaded through `changeQuantity`/`removeFromCart`), not `productId` alone, so "Orta" and "Buyuk" of the same product never collapse into one line. `ProductsPage.jsx`'s `VariantsModal` is the admin-side counterpart — add/delete a size and edit its own recipe (independent of the product's own recipe) inline, mirroring the existing `RecipeModal` pattern but scoped to `/products/:id/variants/*` endpoints.
+
 ### Sharing the dev server through a tunnel
 
 `vite.config.js` sets `server.allowedHosts: true`. Vite's dev server rejects requests whose `Host` header it doesn't recognize (DNS-rebinding protection); a tunnel (cloudflared/localtunnel) presents a `Host` Vite has never seen, so without this the page fails to load through the tunnel even though it works fine on `localhost`. Only affects `npm run dev` — irrelevant to `npm run build`/`preview`.

@@ -167,9 +167,153 @@ function RecipeModal({ product, allIngredients, onClose, onAdd, onRemove, addPen
   );
 }
 
+// Bir urunun boy varyantlarini (Orta/Buyuk gibi) yonetir: ekleme, silme, ve
+// her varyantin kendi recetesini (BOM) duzenleme - hepsi tek modalda, bir
+// varyanta tiklamak o varyantin recete editorunu asagida acip kapatir.
+function VariantsModal({
+  product,
+  allIngredients,
+  onClose,
+  onCreateVariant,
+  onDeleteVariant,
+  onAddVariantIngredient,
+  onRemoveVariantIngredient,
+  createPending,
+  error,
+}) {
+  const [expandedVariantId, setExpandedVariantId] = useState(null);
+  const [newName, setNewName] = useState('');
+  const [newPrice, setNewPrice] = useState('');
+  const [ingredientId, setIngredientId] = useState('');
+  const [usageAmount, setUsageAmount] = useState('');
+
+  function handleCreate(e) {
+    e.preventDefault();
+    onCreateVariant({ name: newName, price: Number(newPrice) });
+    setNewName('');
+    setNewPrice('');
+  }
+
+  function handleAddIngredient(e, variantId) {
+    e.preventDefault();
+    onAddVariantIngredient(variantId, { ingredientId: Number(ingredientId), usageAmount: Number(usageAmount) });
+    setIngredientId('');
+    setUsageAmount('');
+  }
+
+  return (
+    <Modal title={`Boylar: ${product.name}`} onClose={onClose}>
+      <div className="mb-4 max-h-72 overflow-y-auto">
+        {product.variants.length === 0 && <p className="text-slate-400">Boy tanimli degil.</p>}
+        {product.variants.map((variant) => (
+          <div key={variant.id} className="border-b border-slate-100 py-2 last:border-0">
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setExpandedVariantId((id) => (id === variant.id ? null : variant.id))}
+                className="flex-1 text-left text-slate-700"
+              >
+                <span className="font-semibold">{variant.name}</span>: {formatMoney(variant.price)}{' '}
+                <span className="text-sm text-slate-400">({variant.ingredients.length} malzeme)</span>
+              </button>
+              <button
+                onClick={() => onDeleteVariant(variant.id)}
+                className="text-red-500 hover:text-red-700"
+              >
+                Sil
+              </button>
+            </div>
+
+            {expandedVariantId === variant.id && (
+              <div className="mt-2 rounded-lg bg-slate-50 p-3">
+                {variant.ingredients.length === 0 && (
+                  <p className="mb-2 text-sm text-slate-400">Bu boy icin recete tanimli degil.</p>
+                )}
+                {variant.ingredients.map((bom) => (
+                  <div key={bom.ingredientId} className="flex items-center justify-between py-1">
+                    <span className="text-sm text-slate-600">
+                      {bom.ingredient.name}: {bom.usageAmount} {bom.ingredient.unit}
+                    </span>
+                    <button
+                      onClick={() => onRemoveVariantIngredient(variant.id, bom.ingredientId)}
+                      className="text-xs text-red-500 hover:text-red-700"
+                    >
+                      Cikar
+                    </button>
+                  </div>
+                ))}
+
+                <form onSubmit={(e) => handleAddIngredient(e, variant.id)} className="mt-2 flex items-end gap-2">
+                  <select
+                    value={ingredientId}
+                    onChange={(e) => setIngredientId(e.target.value)}
+                    className="h-10 flex-1 rounded-lg border border-slate-300 px-2 text-sm"
+                    required
+                  >
+                    <option value="" disabled>Malzeme secin...</option>
+                    {allIngredients.map((ing) => (
+                      <option key={ing.id} value={ing.id}>{ing.name} ({ing.unit})</option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={usageAmount}
+                    onChange={(e) => setUsageAmount(e.target.value)}
+                    placeholder="Miktar"
+                    className="h-10 w-24 rounded-lg border border-slate-300 px-2 text-sm"
+                    required
+                  />
+                  <button type="submit" className="h-10 rounded-lg bg-indigo-600 px-3 text-sm font-semibold text-white hover:bg-indigo-700">
+                    Ekle
+                  </button>
+                </form>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <form onSubmit={handleCreate} className="border-t border-slate-200 pt-4">
+        <p className="mb-2 font-semibold text-slate-700">Yeni Boy Ekle</p>
+        <div className="flex gap-2">
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="Orn: Buyuk"
+            className="h-12 flex-1 rounded-xl border border-slate-300 px-3 text-lg"
+            required
+          />
+          <input
+            type="number"
+            step="any"
+            min="0"
+            value={newPrice}
+            onChange={(e) => setNewPrice(e.target.value)}
+            placeholder="Fiyat"
+            className="h-12 w-28 rounded-xl border border-slate-300 px-3 text-lg"
+            required
+          />
+        </div>
+
+        {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+
+        <button
+          type="submit"
+          disabled={createPending}
+          className="mt-3 h-12 w-full rounded-xl bg-indigo-600 text-lg font-semibold text-white hover:bg-indigo-700 disabled:bg-slate-300"
+        >
+          {createPending ? 'Ekleniyor...' : 'Boy Ekle'}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
 export default function ProductsPage() {
   const queryClient = useQueryClient();
-  const [modal, setModal] = useState(null); // { type: 'create'|'edit'|'recipe', product? }
+  const [modal, setModal] = useState(null); // { type: 'create'|'edit'|'recipe'|'variants', product? }
   const [formError, setFormError] = useState('');
   const [includeInactive, setIncludeInactive] = useState(false);
 
@@ -183,7 +327,7 @@ export default function ProductsPage() {
   const ingredientsQuery = useQuery({
     queryKey: ['ingredients'],
     queryFn: () => apiFetch('/ingredients'),
-    enabled: modal?.type === 'recipe',
+    enabled: modal?.type === 'recipe' || modal?.type === 'variants',
   });
 
   function closeModal() {
@@ -222,13 +366,44 @@ export default function ProductsPage() {
     onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Islem basarisiz oldu.'),
   });
 
+  const createVariantMutation = useMutation({
+    mutationFn: (body) => apiFetch(`/products/${modal.product.id}/variants`, { method: 'POST', body }),
+    // Recete modalindeki gibi modali KAPATMIYORUZ - art arda birden fazla boy eklenebilsin.
+    onSuccess: () => { invalidateProducts(); setFormError(''); },
+    onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Islem basarisiz oldu.'),
+  });
+
+  const deleteVariantMutation = useMutation({
+    mutationFn: (variantId) => apiFetch(`/products/${modal.product.id}/variants/${variantId}`, { method: 'DELETE' }),
+    onSuccess: () => invalidateProducts(),
+    onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Islem basarisiz oldu.'),
+  });
+
+  const addVariantIngredientMutation = useMutation({
+    mutationFn: ({ variantId, body }) =>
+      apiFetch(`/products/${modal.product.id}/variants/${variantId}/ingredients`, { method: 'POST', body }),
+    onSuccess: () => { invalidateProducts(); setFormError(''); },
+    onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Islem basarisiz oldu.'),
+  });
+
+  const removeVariantIngredientMutation = useMutation({
+    mutationFn: ({ variantId, ingredientId }) =>
+      apiFetch(`/products/${modal.product.id}/variants/${variantId}/ingredients/${ingredientId}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => invalidateProducts(),
+    onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Islem basarisiz oldu.'),
+  });
+
   const products = productsQuery.data?.products ?? [];
 
-  // Recete modali acikken urun listesi tazelenirse (yeni malzeme eklendiginde
-  // oldugu gibi), modalin de guncel veriyi gostermesi icin taze listeden
-  // ayni urunu tekrar buluyoruz.
+  // Recete/Boylar modali acikken urun listesi tazelenirse (yeni malzeme/boy
+  // eklendiginde oldugu gibi), modalin de guncel veriyi gostermesi icin taze
+  // listeden ayni urunu tekrar buluyoruz.
   const activeModalProduct =
-    modal?.type === 'recipe' ? products.find((p) => p.id === modal.product.id) ?? modal.product : modal?.product;
+    modal?.type === 'recipe' || modal?.type === 'variants'
+      ? products.find((p) => p.id === modal.product.id) ?? modal.product
+      : modal?.product;
 
   return (
     <div className="flex h-screen flex-col bg-slate-100">
@@ -268,6 +443,7 @@ export default function ProductsPage() {
                   <th className="px-5 py-3">Kategori</th>
                   <th className="px-5 py-3">Fiyat</th>
                   <th className="px-5 py-3">Recete</th>
+                  <th className="px-5 py-3">Boylar</th>
                   <th className="px-5 py-3"></th>
                 </tr>
               </thead>
@@ -287,6 +463,9 @@ export default function ProductsPage() {
                     <td className="px-5 py-3 text-slate-500">
                       {p.ingredients.length === 0 ? 'tanimli degil' : `${p.ingredients.length} malzeme`}
                     </td>
+                    <td className="px-5 py-3 text-slate-500">
+                      {p.variants.length === 0 ? 'yok' : `${p.variants.length} boy`}
+                    </td>
                     <td className="px-5 py-3">
                       <div className="flex justify-end gap-2">
                         <button
@@ -294,6 +473,12 @@ export default function ProductsPage() {
                           className="rounded-lg bg-slate-100 px-3 py-2 font-medium text-slate-600 hover:bg-slate-200"
                         >
                           Recete
+                        </button>
+                        <button
+                          onClick={() => { setFormError(''); setModal({ type: 'variants', product: p }); }}
+                          className="rounded-lg bg-slate-100 px-3 py-2 font-medium text-slate-600 hover:bg-slate-200"
+                        >
+                          Boylar
                         </button>
                         <button
                           onClick={() => { setFormError(''); setModal({ type: 'edit', product: p }); }}
@@ -341,6 +526,22 @@ export default function ProductsPage() {
           onRemove={(ingredientId) => removeIngredientMutation.mutate(ingredientId)}
           addPending={addIngredientMutation.isPending}
           removePending={removeIngredientMutation.isPending}
+          error={formError}
+        />
+      )}
+
+      {modal?.type === 'variants' && activeModalProduct && (
+        <VariantsModal
+          product={activeModalProduct}
+          allIngredients={ingredientsQuery.data?.ingredients ?? []}
+          onClose={closeModal}
+          onCreateVariant={(body) => createVariantMutation.mutate(body)}
+          onDeleteVariant={(variantId) => deleteVariantMutation.mutate(variantId)}
+          onAddVariantIngredient={(variantId, body) => addVariantIngredientMutation.mutate({ variantId, body })}
+          onRemoveVariantIngredient={(variantId, ingredientId) =>
+            removeVariantIngredientMutation.mutate({ variantId, ingredientId })
+          }
+          createPending={createVariantMutation.isPending}
           error={formError}
         />
       )}
