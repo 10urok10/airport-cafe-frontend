@@ -459,21 +459,29 @@ export default function ProductsPage() {
                       )}
                     </td>
                     <td className="px-5 py-3 text-slate-500">{p.category}</td>
-                    <td className="px-5 py-3 text-slate-600">{formatMoney(p.price)}</td>
+                    <td className="px-5 py-3 text-slate-600">
+                      {p.variants.length === 0 ? formatMoney(p.price) : 'Boylara gore degisir'}
+                    </td>
                     <td className="px-5 py-3 text-slate-500">
-                      {p.ingredients.length === 0 ? 'tanimli degil' : `${p.ingredients.length} malzeme`}
+                      {p.variants.length > 0
+                        ? 'Boylar uzerinden yonetiliyor'
+                        : p.ingredients.length === 0
+                          ? 'tanimli degil'
+                          : `${p.ingredients.length} malzeme`}
                     </td>
                     <td className="px-5 py-3 text-slate-500">
                       {p.variants.length === 0 ? 'yok' : `${p.variants.length} boy`}
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => { setFormError(''); setModal({ type: 'recipe', product: p }); }}
-                          className="rounded-lg bg-slate-100 px-3 py-2 font-medium text-slate-600 hover:bg-slate-200"
-                        >
-                          Recete
-                        </button>
+                        {p.variants.length === 0 && (
+                          <button
+                            onClick={() => { setFormError(''); setModal({ type: 'recipe', product: p }); }}
+                            className="rounded-lg bg-slate-100 px-3 py-2 font-medium text-slate-600 hover:bg-slate-200"
+                          >
+                            Recete
+                          </button>
+                        )}
                         <button
                           onClick={() => { setFormError(''); setModal({ type: 'variants', product: p }); }}
                           className="rounded-lg bg-slate-100 px-3 py-2 font-medium text-slate-600 hover:bg-slate-200"
