@@ -311,6 +311,15 @@ function VariantsModal({
   );
 }
 
+// Sik kullanilan ekstralarin hazir listesi: admin bunlari elle yazip sonra
+// ayrica malzeme baglamak yerine tek secimle hem fiyati hem malzeme etkisini
+// (ingredientName, envanterdeki isimle eslesir) hazir alir. Listede olmayan
+// bir ekstra icin "Ozel" secenegi eski (elle giris) davranisi korur.
+const MODIFIER_PRESETS = [
+  { key: 'ekstra-shot', name: 'Ekstra Shot', priceDelta: 10, ingredientName: 'Espresso Roast Coffee', usageAmount: 18 },
+  { key: 'yulaf-sutu', name: 'Yulaf Sutu', priceDelta: 5, ingredientName: 'Yulaf Sutu', usageAmount: 200 },
+];
+
 // Bir urunun ekstralarini (Ekstra Shot, Yulaf Sutu gibi) yonetir - VariantsModal
 // ile ayni desen, tek fark boyun aksine ayni anda birden fazla ekstra
 // siparise eklenebilir ve fiyat eki (priceDelta) 0 olabilir (orn. ucretsiz
@@ -327,16 +336,60 @@ function ModifiersModal({
   error,
 }) {
   const [expandedModifierId, setExpandedModifierId] = useState(null);
-  const [newName, setNewName] = useState('');
-  const [newPriceDelta, setNewPriceDelta] = useState('');
+  const [presetKey, setPresetKey] = useState('');
+  const [customName, setCustomName] = useState('');
+  const [priceDelta, setPriceDelta] = useState('');
   const [ingredientId, setIngredientId] = useState('');
   const [usageAmount, setUsageAmount] = useState('');
+  // createPending sadece 1. adimi (modifier olusturma) yansitir - hazir bir
+  // ekstra icin 2. adim (malzeme baglama) hala surerken butonun tekrar
+  // tiklanabilir olmasini bu ayri state ile engelliyoruz.
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function handleCreate(e) {
+  const selectedPreset = MODIFIER_PRESETS.find((p) => p.key === presetKey);
+  const isCustom = presetKey === 'custom';
+
+  function handlePresetChange(key) {
+    setPresetKey(key);
+    const preset = MODIFIER_PRESETS.find((p) => p.key === key);
+    setPriceDelta(preset ? String(preset.priceDelta) : '');
+  }
+
+  // Hazir bir ekstra secildiyse: once modifier'i olustur, sonra (ingredientName
+  // envanterde varsa) onun malzeme baglantisini OTOMATIK ekle - admin ayrica
+  // "malzeme ekle" formunu doldurmak zorunda kalmaz. "Ozel" secildiyse eski
+  // davranis: sadece isim+fiyat, malzeme baglantisi elle (asagidaki mini
+  // formdan) eklenir.
+  async function handleCreate(e) {
     e.preventDefault();
-    onCreateModifier({ name: newName, priceDelta: Number(newPriceDelta) });
-    setNewName('');
-    setNewPriceDelta('');
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
+    try {
+      const name = selectedPreset ? selectedPreset.name : customName;
+      let created;
+      try {
+        created = await onCreateModifier({ name, priceDelta: Number(priceDelta) });
+      } catch {
+        return; // hata mesaji ust seviyede (mutation onError) zaten gosteriliyor
+      }
+
+      if (selectedPreset) {
+        const ingredient = allIngredients.find((ing) => ing.name === selectedPreset.ingredientName);
+        if (ingredient) {
+          await onAddModifierIngredient(created.modifier.id, {
+            ingredientId: ingredient.id,
+            usageAmount: selectedPreset.usageAmount,
+          }).catch(() => {});
+        }
+      }
+
+      setPresetKey('');
+      setCustomName('');
+      setPriceDelta('');
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   function handleAddIngredient(e, modifierId) {
@@ -422,34 +475,57 @@ function ModifiersModal({
 
       <form onSubmit={handleCreate} className="border-t border-slate-200 pt-4">
         <p className="mb-2 font-semibold text-slate-700">Yeni Ekstra Ekle</p>
-        <div className="flex gap-2">
+
+        <select
+          value={presetKey}
+          onChange={(e) => handlePresetChange(e.target.value)}
+          className="mb-3 h-12 w-full rounded-xl border border-slate-300 px-3 text-lg"
+          required
+        >
+          <option value="" disabled>Ekstra secin...</option>
+          {MODIFIER_PRESETS.map((preset) => (
+            <option key={preset.key} value={preset.key}>{preset.name}</option>
+          ))}
+          <option value="custom">Ozel (elle giris)</option>
+        </select>
+
+        {isCustom && (
           <input
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="Orn: Ekstra Shot"
-            className="h-12 flex-1 rounded-xl border border-slate-300 px-3 text-lg"
+            value={customName}
+            onChange={(e) => setCustomName(e.target.value)}
+            placeholder="Ekstra adi"
+            className="mb-3 h-12 w-full rounded-xl border border-slate-300 px-3 text-lg"
             required
           />
+        )}
+
+        <div className="flex gap-2">
           <input
             type="number"
             step="any"
             min="0"
-            value={newPriceDelta}
-            onChange={(e) => setNewPriceDelta(e.target.value)}
+            value={priceDelta}
+            onChange={(e) => setPriceDelta(e.target.value)}
             placeholder="Fiyat Eki"
-            className="h-12 w-28 rounded-xl border border-slate-300 px-3 text-lg"
+            className="h-12 w-full rounded-xl border border-slate-300 px-3 text-lg"
             required
           />
         </div>
+
+        {selectedPreset && (
+          <p className="mt-2 text-sm text-slate-500">
+            Secildiginde otomatik olarak {selectedPreset.usageAmount} {allIngredients.find((i) => i.name === selectedPreset.ingredientName)?.unit ?? ''} {selectedPreset.ingredientName} eklenecek.
+          </p>
+        )}
 
         {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
 
         <button
           type="submit"
-          disabled={createPending}
+          disabled={isSubmitting || createPending}
           className="mt-3 h-12 w-full rounded-xl bg-indigo-600 text-lg font-semibold text-white hover:bg-indigo-700 disabled:bg-slate-300"
         >
-          {createPending ? 'Ekleniyor...' : 'Ekstra Ekle'}
+          {isSubmitting || createPending ? 'Ekleniyor...' : 'Ekstra Ekle'}
         </button>
       </form>
     </Modal>
@@ -742,9 +818,9 @@ export default function ProductsPage() {
           product={activeModalProduct}
           allIngredients={ingredientsQuery.data?.ingredients ?? []}
           onClose={closeModal}
-          onCreateModifier={(body) => createModifierMutation.mutate(body)}
+          onCreateModifier={(body) => createModifierMutation.mutateAsync(body)}
           onDeleteModifier={(modifierId) => deleteModifierMutation.mutate(modifierId)}
-          onAddModifierIngredient={(modifierId, body) => addModifierIngredientMutation.mutate({ modifierId, body })}
+          onAddModifierIngredient={(modifierId, body) => addModifierIngredientMutation.mutateAsync({ modifierId, body })}
           onRemoveModifierIngredient={(modifierId, ingredientId) =>
             removeModifierIngredientMutation.mutate({ modifierId, ingredientId })
           }
