@@ -170,8 +170,16 @@ function RecipeModal({ product, allIngredients, onClose, onAdd, onRemove, addPen
 // Bir urunun boy varyantlarini (Orta/Buyuk gibi) yonetir: ekleme, silme, ve
 // her varyantin kendi recetesini (BOM) duzenleme - hepsi tek modalda, bir
 // varyanta tiklamak o varyantin recete editorunu asagida acip kapatir.
+// Her boy adi ("Orta", "Buyuk" vb.) urunler arasinda tekrar tekrar ayni
+// sekilde yaziliyor - serbest metin yerine bir secim listesi hem yazim
+// tutarliligini saglar hem de hizlandirir. "Orta"/"Buyuk" her zaman
+// listede hazir durur, ustune diger urunlerde daha once kullanilmis
+// boy adlari da (bu urunde henuz olmayanlar) otomatik eklenir.
+const DEFAULT_VARIANT_NAMES = ['Orta', 'Buyuk'];
+
 function VariantsModal({
   product,
+  allProducts,
   allIngredients,
   onClose,
   onCreateVariant,
@@ -182,15 +190,25 @@ function VariantsModal({
   error,
 }) {
   const [expandedVariantId, setExpandedVariantId] = useState(null);
-  const [newName, setNewName] = useState('');
+  const [nameOption, setNameOption] = useState('');
+  const [customName, setCustomName] = useState('');
   const [newPrice, setNewPrice] = useState('');
   const [ingredientId, setIngredientId] = useState('');
   const [usageAmount, setUsageAmount] = useState('');
 
+  const usedNames = new Set(product.variants.map((v) => v.name));
+  const knownNames = [
+    ...new Set([...DEFAULT_VARIANT_NAMES, ...allProducts.flatMap((p) => p.variants.map((v) => v.name))]),
+  ]
+    .filter((name) => !usedNames.has(name))
+    .sort((a, b) => a.localeCompare(b, 'tr'));
+
   function handleCreate(e) {
     e.preventDefault();
-    onCreateVariant({ name: newName, price: Number(newPrice) });
-    setNewName('');
+    const name = nameOption === '__custom__' ? customName : nameOption;
+    onCreateVariant({ name, price: Number(newPrice) });
+    setNameOption('');
+    setCustomName('');
     setNewPrice('');
   }
 
@@ -277,24 +295,40 @@ function VariantsModal({
 
       <form onSubmit={handleCreate} className="border-t border-slate-200 pt-4">
         <p className="mb-2 font-semibold text-slate-700">Yeni Boy Ekle</p>
-        <div className="flex gap-2">
-          <input
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="Orn: Buyuk"
-            className="h-12 flex-1 rounded-xl border border-slate-300 px-3 text-lg"
-            required
-          />
-          <input
-            type="number"
-            step="any"
-            min="0"
-            value={newPrice}
-            onChange={(e) => setNewPrice(e.target.value)}
-            placeholder="Fiyat"
-            className="h-12 w-28 rounded-xl border border-slate-300 px-3 text-lg"
-            required
-          />
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <select
+              value={nameOption}
+              onChange={(e) => setNameOption(e.target.value)}
+              className="h-12 flex-1 rounded-xl border border-slate-300 px-3 text-lg"
+              required
+            >
+              <option value="" disabled>Boy secin...</option>
+              {knownNames.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+              <option value="__custom__">Ozel (elle giris)</option>
+            </select>
+            <input
+              type="number"
+              step="any"
+              min="0"
+              value={newPrice}
+              onChange={(e) => setNewPrice(e.target.value)}
+              placeholder="Fiyat"
+              className="h-12 w-28 rounded-xl border border-slate-300 px-3 text-lg"
+              required
+            />
+          </div>
+          {nameOption === '__custom__' && (
+            <input
+              value={customName}
+              onChange={(e) => setCustomName(e.target.value)}
+              placeholder="Boy adi (orn. Kucuk)"
+              className="h-12 w-full rounded-xl border border-slate-300 px-3 text-lg"
+              required
+            />
+          )}
         </div>
 
         {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
@@ -541,6 +575,7 @@ export default function ProductsPage() {
       {modal?.type === 'variants' && activeModalProduct && (
         <VariantsModal
           product={activeModalProduct}
+          allProducts={products}
           allIngredients={ingredientsQuery.data?.ingredients ?? []}
           onClose={closeModal}
           onCreateVariant={(body) => createVariantMutation.mutate(body)}
