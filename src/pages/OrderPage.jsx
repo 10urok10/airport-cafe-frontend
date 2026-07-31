@@ -11,20 +11,102 @@ const PAYMENT_METHODS = [
 ];
 
 // Sepette bir kalemi tekil olarak tanimlayan anahtar: ayni urunun "Orta"su
-// ile "Buyuk"u ayri satirlar olmali, sadece productId'ye gore eslestirmek
-// bunlari yanlislikla birlestirirdi.
-function cartLineKey(productId, variantId) {
-  return `${productId}-${variantId ?? 'base'}`;
+// ile "Buyuk"u, ya da ayni boydaki "Ekstra Shot'lu" ile "Ekstra Shot'suz"
+// hali ayri satirlar olmali - sadece productId'ye gore eslestirmek bunlari
+// yanlislikla birlestirirdi.
+function cartLineKey(productId, variantId, modifierIds) {
+  const sortedModifiers = [...modifierIds].sort((a, b) => a - b).join(',');
+  return `${productId}-${variantId ?? 'base'}-${sortedModifiers}`;
+}
+
+// Urunun boyu ve/veya ekstralari varsa siparise eklemeden once secim
+// yapilmasi gereken tek bir modal - boy TEKIL secim (radio), ekstralar
+// COKLU secilebilir (checkbox). Ikisi de olmayan bir urun bu modali hic
+// gormez, dogrudan sepete eklenir (bkz. OrderPage#addToCart).
+function ProductOptionsModal({ product, onClose, onConfirm }) {
+  const hasVariants = product.variants.length > 0;
+  const [variantId, setVariantId] = useState(hasVariants ? product.variants[0].id : null);
+  const [modifierIds, setModifierIds] = useState([]);
+
+  function toggleModifier(id) {
+    setModifierIds((prev) => (prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]));
+  }
+
+  const variant = hasVariants ? product.variants.find((v) => v.id === variantId) : null;
+  const basePrice = Number(variant ? variant.price : product.price);
+  const modifiersTotal = modifierIds.reduce(
+    (sum, id) => sum + Number(product.modifiers.find((m) => m.id === id).priceDelta),
+    0
+  );
+  const total = basePrice + modifiersTotal;
+
+  return (
+    <Modal title={product.name} onClose={onClose}>
+      {hasVariants && (
+        <div className="mb-4">
+          <p className="mb-2 font-semibold text-slate-700">Boy</p>
+          <div className="flex flex-col gap-2">
+            {product.variants.map((v) => (
+              <button
+                key={v.id}
+                onClick={() => setVariantId(v.id)}
+                className={`flex items-center justify-between rounded-xl px-4 py-3 text-lg font-semibold transition ${
+                  variantId === v.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <span>{v.name}</span>
+                <span>{formatMoney(v.price)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {product.modifiers.length > 0 && (
+        <div className="mb-4">
+          <p className="mb-2 font-semibold text-slate-700">Ekstralar</p>
+          <div className="flex flex-col gap-2">
+            {product.modifiers.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => toggleModifier(m.id)}
+                className={`flex items-center justify-between rounded-xl px-4 py-3 text-lg font-semibold transition ${
+                  modifierIds.includes(m.id)
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <span>{m.name}</span>
+                <span>+{formatMoney(m.priceDelta)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mb-4 flex items-center justify-between border-t border-slate-200 pt-4 text-xl font-bold text-slate-800">
+        <span>Toplam</span>
+        <span>{formatMoney(total)}</span>
+      </div>
+
+      <button
+        onClick={() => onConfirm({ variant, modifierIds, price: total })}
+        className="h-14 w-full rounded-xl bg-emerald-600 text-lg font-bold text-white transition hover:bg-emerald-700"
+      >
+        Sepete Ekle
+      </button>
+    </Modal>
+  );
 }
 
 export default function OrderPage() {
   const queryClient = useQueryClient();
 
-  const [cart, setCart] = useState([]); // [{ productId, variantId, name, price, quantity }]
+  const [cart, setCart] = useState([]); // [{ productId, variantId, modifierIds, name, price, quantity }]
   const [selectedCategory, setSelectedCategory] = useState('Tumu');
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [isStaffOrder, setIsStaffOrder] = useState(false);
-  const [sizeModalProduct, setSizeModalProduct] = useState(null); // boy secimi bekleyen urun
+  const [optionsModalProduct, setOptionsModalProduct] = useState(null); // boy/ekstra secimi bekleyen urun
   const [feedback, setFeedback] = useState(null); // { type: 'success'|'error', message }
   // Ayni siparisin yanlislikla iki kez gonderilmesine karsi (orn. cift
   // tiklama), backend'in idempotencyKey mekanizmasini kullaniyoruz. Basarili
@@ -50,50 +132,55 @@ export default function OrderPage() {
   const visibleProducts =
     selectedCategory === 'Tumu' ? products : products.filter((p) => p.category === selectedCategory);
 
-  // Urunun boy varyanti varsa direkt sepete eklemek yerine once boy sormak
-  // gerekir - "once Americano sec, sonra Orta mi Buyuk mu" akisi bunu saglar.
+  // Urunun boyu ve/veya ekstralari varsa direkt sepete eklemek yerine once
+  // secim modalini aciyoruz - ikisi de yoksa (Cheesecake gibi) eskisi gibi
+  // tek tikla direkt eklenir.
   function addToCart(product) {
     setFeedback(null);
-    if (product.variants && product.variants.length > 0) {
-      setSizeModalProduct(product);
+    if (product.variants.length > 0 || product.modifiers.length > 0) {
+      setOptionsModalProduct(product);
       return;
     }
-    addLineToCart(product.id, null, product.name, product.price);
+    addLineToCart(product.id, null, [], product.name, product.price);
   }
 
-  function addVariantToCart(product, variant) {
-    addLineToCart(product.id, variant.id, `${product.name} (${variant.name})`, variant.price);
-    setSizeModalProduct(null);
+  function confirmOptionsAndAddToCart({ variant, modifierIds, price }) {
+    const modifierNames = modifierIds.map((id) => optionsModalProduct.modifiers.find((m) => m.id === id).name);
+    const name = [
+      optionsModalProduct.name + (variant ? ` (${variant.name})` : ''),
+      ...modifierNames,
+    ].join(' + ');
+    addLineToCart(optionsModalProduct.id, variant ? variant.id : null, modifierIds, name, price);
+    setOptionsModalProduct(null);
   }
 
-  function addLineToCart(productId, variantId, name, price) {
+  function addLineToCart(productId, variantId, modifierIds, name, price) {
+    const key = cartLineKey(productId, variantId, modifierIds);
     setCart((prev) => {
-      const existing = prev.find((item) => item.productId === productId && item.variantId === variantId);
+      const existing = prev.find((item) => cartLineKey(item.productId, item.variantId, item.modifierIds) === key);
       if (existing) {
         return prev.map((item) =>
-          item.productId === productId && item.variantId === variantId
+          cartLineKey(item.productId, item.variantId, item.modifierIds) === key
             ? { ...item, quantity: item.quantity + 1 }
             : item
         );
       }
-      return [...prev, { productId, variantId, name, price, quantity: 1 }];
+      return [...prev, { productId, variantId, modifierIds, name, price, quantity: 1 }];
     });
   }
 
-  function changeQuantity(productId, variantId, delta) {
+  function changeQuantity(item, delta) {
+    const key = cartLineKey(item.productId, item.variantId, item.modifierIds);
     setCart((prev) =>
       prev
-        .map((item) =>
-          item.productId === productId && item.variantId === variantId
-            ? { ...item, quantity: item.quantity + delta }
-            : item
-        )
-        .filter((item) => item.quantity > 0)
+        .map((i) => (cartLineKey(i.productId, i.variantId, i.modifierIds) === key ? { ...i, quantity: i.quantity + delta } : i))
+        .filter((i) => i.quantity > 0)
     );
   }
 
-  function removeFromCart(productId, variantId) {
-    setCart((prev) => prev.filter((item) => !(item.productId === productId && item.variantId === variantId)));
+  function removeFromCart(item) {
+    const key = cartLineKey(item.productId, item.variantId, item.modifierIds);
+    setCart((prev) => prev.filter((i) => cartLineKey(i.productId, i.variantId, i.modifierIds) !== key));
   }
 
   const total = cart.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0);
@@ -115,6 +202,7 @@ export default function OrderPage() {
           items: cart.map((item) => ({
             productId: item.productId,
             variantId: item.variantId,
+            modifierIds: item.modifierIds,
             quantity: item.quantity,
           })),
         },
@@ -170,7 +258,7 @@ export default function OrderPage() {
 
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
                 {visibleProducts.map((product) => {
-                  const hasVariants = product.variants && product.variants.length > 0;
+                  const hasVariants = product.variants.length > 0;
                   return (
                     <button
                       key={product.id}
@@ -205,27 +293,30 @@ export default function OrderPage() {
           <div className="mb-4 flex-1 overflow-y-auto">
             {cart.length === 0 && <p className="text-slate-400">Sepet bos. Urune tiklayin.</p>}
             {cart.map((item) => (
-              <div key={cartLineKey(item.productId, item.variantId)} className="mb-3 flex items-center justify-between gap-2">
+              <div
+                key={cartLineKey(item.productId, item.variantId, item.modifierIds)}
+                className="mb-3 flex items-center justify-between gap-2"
+              >
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium text-slate-800">{item.name}</p>
                   <p className="text-sm text-slate-500">{formatMoney(item.price)}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => changeQuantity(item.productId, item.variantId, -1)}
+                    onClick={() => changeQuantity(item, -1)}
                     className="h-8 w-8 rounded-lg bg-slate-100 text-lg font-bold text-slate-600 hover:bg-slate-200"
                   >
                     -
                   </button>
                   <span className="w-6 text-center font-semibold">{item.quantity}</span>
                   <button
-                    onClick={() => changeQuantity(item.productId, item.variantId, 1)}
+                    onClick={() => changeQuantity(item, 1)}
                     className="h-8 w-8 rounded-lg bg-slate-100 text-lg font-bold text-slate-600 hover:bg-slate-200"
                   >
                     +
                   </button>
                   <button
-                    onClick={() => removeFromCart(item.productId, item.variantId)}
+                    onClick={() => removeFromCart(item)}
                     className="ml-1 text-red-500 hover:text-red-700"
                     aria-label="Sil"
                   >
@@ -290,21 +381,12 @@ export default function OrderPage() {
         </aside>
       </div>
 
-      {sizeModalProduct && (
-        <Modal title={`${sizeModalProduct.name} - Boy Secin`} onClose={() => setSizeModalProduct(null)}>
-          <div className="flex flex-col gap-3">
-            {sizeModalProduct.variants.map((variant) => (
-              <button
-                key={variant.id}
-                onClick={() => addVariantToCart(sizeModalProduct, variant)}
-                className="flex items-center justify-between rounded-xl bg-slate-100 px-5 py-4 text-lg font-semibold text-slate-700 transition hover:bg-indigo-600 hover:text-white active:scale-95"
-              >
-                <span>{variant.name}</span>
-                <span>{formatMoney(variant.price)}</span>
-              </button>
-            ))}
-          </div>
-        </Modal>
+      {optionsModalProduct && (
+        <ProductOptionsModal
+          product={optionsModalProduct}
+          onClose={() => setOptionsModalProduct(null)}
+          onConfirm={confirmOptionsAndAddToCart}
+        />
       )}
     </div>
   );
