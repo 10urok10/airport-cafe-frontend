@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, ApiError } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -176,6 +176,16 @@ function IngredientFormModal({ title, initial, onClose, onSubmit, isPending, err
   );
 }
 
+// Stok/esik orani: 1'e ne kadar yakinsa (veya altindaysa) esige o kadar
+// yakin demektir. Esik hic tanimlanmamissa (0) bir "aciliyet" olcusu
+// olamaz, bu yuzden Infinity donup siralamada en sona (en az riskli yere)
+// dusmesini sagliyoruz.
+function thresholdRatio(ingredient) {
+  const threshold = Number(ingredient.minStockThreshold);
+  if (threshold <= 0) return Infinity;
+  return Number(ingredient.stockQuantity) / threshold;
+}
+
 export default function InventoryPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
@@ -183,6 +193,7 @@ export default function InventoryPage() {
 
   const [modal, setModal] = useState(null); // { type: 'adjust'|'create'|'edit', ingredient? }
   const [formError, setFormError] = useState('');
+  const [sortByThreshold, setSortByThreshold] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['ingredients'],
@@ -218,6 +229,11 @@ export default function InventoryPage() {
 
   const ingredients = data?.ingredients ?? [];
 
+  const displayedIngredients = useMemo(() => {
+    if (!sortByThreshold) return ingredients;
+    return [...ingredients].sort((a, b) => thresholdRatio(a) - thresholdRatio(b));
+  }, [ingredients, sortByThreshold]);
+
   return (
     <div className="flex h-screen flex-col bg-slate-100">
       <Header />
@@ -225,14 +241,24 @@ export default function InventoryPage() {
       <main className="flex-1 overflow-y-auto p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-2xl font-bold text-slate-800">Envanter</h2>
-          {isAdmin && (
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => { setFormError(''); setModal({ type: 'create' }); }}
-              className="rounded-xl bg-indigo-600 px-5 py-3 text-lg font-semibold text-white hover:bg-indigo-700"
+              onClick={() => setSortByThreshold((prev) => !prev)}
+              className={`rounded-xl px-5 py-3 text-lg font-semibold transition ${
+                sortByThreshold ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-200'
+              }`}
             >
-              + Yeni Malzeme
+              Esige Yakinliga Gore Sirala
             </button>
-          )}
+            {isAdmin && (
+              <button
+                onClick={() => { setFormError(''); setModal({ type: 'create' }); }}
+                className="rounded-xl bg-indigo-600 px-5 py-3 text-lg font-semibold text-white hover:bg-indigo-700"
+              >
+                + Yeni Malzeme
+              </button>
+            )}
+          </div>
         </div>
 
         {isLoading && <p className="text-slate-500">Yukleniyor...</p>}
@@ -251,7 +277,7 @@ export default function InventoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {ingredients.map((ing) => (
+                {displayedIngredients.map((ing) => (
                   <tr key={ing.id} className="border-t border-slate-100">
                     <td className="px-5 py-3 font-medium text-slate-800">
                       {ing.name}
