@@ -28,10 +28,10 @@ npm run lint      # oxlint
 | Rota | Açıklama | Erişim |
 |---|---|---|
 | `/login` | PIN tuş takımıyla giriş | herkese açık |
-| `/orders` | Sipariş alma — ürüne tıkla (boy ve/veya ekstra seçeneği olan ürünlerde önce bir seçim penceresi açılır), sepete eklenir, ödeme yöntemi seç, tamamla | tüm personel |
+| `/orders` | Sipariş alma — ürüne tıkla (boy seçeneği olan ürünlerde önce bir boy seçim penceresi açılır), sepete eklenir, ödeme yöntemi seç, tamamla; ekstralar (Ekstra Shot, Yulaf Sütü vb.) "Ekstralar" kategorisinde sıradan ürün olarak listelenir | tüm personel |
 | `/kitchen` | Mutfak ekranı: Bekleyen / Hazırlanıyor / Son Tamamlananlar, 5sn'de bir otomatik yenilenir | tüm personel |
 | `/inventory` | Stok listesi, stok düzeltme; malzeme ekleme/düzenleme sadece ADMIN | tüm personel (düzenleme ADMIN) |
-| `/products` | Ürün, reçete (BOM), boy varyantı (Orta/Büyük gibi) ve ekstra (Ekstra Shot, Yulaf Sütü gibi) yönetimi — her boy/ekstranın kendi fiyatı ve kendi reçetesi olur | sadece ADMIN |
+| `/products` | Ürün, reçete (BOM) ve boy varyantı (Orta/Büyük gibi) yönetimi — her boyun kendi fiyatı ve kendi reçetesi olur; ekstralar ayrı bir mekanizma değil, "Ekstralar" kategorisinde sıradan bir üründür | sadece ADMIN |
 | `/reports` | Günlük özet ciro/ödeme kırılımı, ürün kâr marjı raporu | sadece ADMIN |
 
 Personel yönetimi ekranı bilinçli olarak yok — kullanıcılar şu an sadece backend/DB tarafında yönetiliyor.

@@ -311,251 +311,9 @@ function VariantsModal({
   );
 }
 
-// Bir urunun ekstralarini (Ekstra Shot, Yulaf Sutu gibi) yonetir - VariantsModal
-// ile ayni desen, tek fark boyun aksine ayni anda birden fazla ekstra
-// siparise eklenebilir ve fiyat eki (priceDelta) 0 olabilir (orn. ucretsiz
-// bir tercih).
-//
-// "Yeni Ekstra Ekle" secenekleri sabit/hardcoded degil: allProducts icindeki
-// TUM urunlerin ekstralarindan (isme gore tekillestirilip) turetilir. Yani
-// "Ozel (elle giris)" ile herhangi bir urune yeni bir ekstra girildiginde, o
-// ekstra otomatik olarak diger urunler icin de secenek listesine girer -
-// Ingredient tablosu urune bagli olmadigindan (global) ayni ingredientId
-// baska bir urunun modifier'ina da dogrudan kopyalanabilir.
-function ModifiersModal({
-  product,
-  allProducts,
-  allIngredients,
-  onClose,
-  onCreateModifier,
-  onDeleteModifier,
-  onAddModifierIngredient,
-  onRemoveModifierIngredient,
-  createPending,
-  error,
-}) {
-  const [expandedModifierId, setExpandedModifierId] = useState(null);
-  const [presetName, setPresetName] = useState('');
-  const [customName, setCustomName] = useState('');
-  const [priceDelta, setPriceDelta] = useState('');
-  const [ingredientId, setIngredientId] = useState('');
-  const [usageAmount, setUsageAmount] = useState('');
-  // createPending sadece 1. adimi (modifier olusturma) yansitir - hazir bir
-  // ekstra icin 2. adim (malzeme baglama) hala surerken butonun tekrar
-  // tiklanabilir olmasini bu ayri state ile engelliyoruz.
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const existingNames = new Set(product.modifiers.map((m) => m.name));
-  const knownModifiers = [];
-  const seenNames = new Set();
-  for (const p of allProducts) {
-    for (const m of p.modifiers) {
-      if (seenNames.has(m.name) || existingNames.has(m.name)) continue;
-      seenNames.add(m.name);
-      knownModifiers.push({
-        name: m.name,
-        priceDelta: Number(m.priceDelta),
-        ingredients: m.ingredients.map((bom) => ({ ingredientId: bom.ingredientId, usageAmount: Number(bom.usageAmount) })),
-      });
-    }
-  }
-  knownModifiers.sort((a, b) => a.name.localeCompare(b.name));
-
-  const selectedPreset = knownModifiers.find((p) => p.name === presetName);
-  const isCustom = presetName === 'custom';
-
-  function handlePresetChange(name) {
-    setPresetName(name);
-    const preset = knownModifiers.find((p) => p.name === name);
-    setPriceDelta(preset ? String(preset.priceDelta) : '');
-  }
-
-  // Bilinen bir ekstra secildiyse: once modifier'i olustur, sonra onun tum
-  // malzeme baglantilarini (baska bir urundeki ayni isimli ekstradan kopyalanir)
-  // OTOMATIK ekle - admin ayrica "malzeme ekle" formunu doldurmak zorunda
-  // kalmaz. "Ozel" secildiyse eski davranis: sadece isim+fiyat, malzeme
-  // baglantisi elle (asagidaki mini formdan) eklenir - ve o andan itibaren bu
-  // yeni isim de diger urunler icin bilinen ekstralar listesine girer.
-  async function handleCreate(e) {
-    e.preventDefault();
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-
-    try {
-      const name = isCustom ? customName : presetName;
-      let created;
-      try {
-        created = await onCreateModifier({ name, priceDelta: Number(priceDelta) });
-      } catch {
-        return; // hata mesaji ust seviyede (mutation onError) zaten gosteriliyor
-      }
-
-      if (selectedPreset) {
-        for (const link of selectedPreset.ingredients) {
-          // eslint-disable-next-line no-await-in-loop
-          await onAddModifierIngredient(created.modifier.id, {
-            ingredientId: link.ingredientId,
-            usageAmount: link.usageAmount,
-          }).catch(() => {});
-        }
-      }
-
-      setPresetName('');
-      setCustomName('');
-      setPriceDelta('');
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  function handleAddIngredient(e, modifierId) {
-    e.preventDefault();
-    onAddModifierIngredient(modifierId, { ingredientId: Number(ingredientId), usageAmount: Number(usageAmount) });
-    setIngredientId('');
-    setUsageAmount('');
-  }
-
-  return (
-    <Modal title={`Ekstralar: ${product.name}`} onClose={onClose}>
-      <div className="mb-4 max-h-72 overflow-y-auto">
-        {product.modifiers.length === 0 && <p className="text-slate-400">Ekstra tanimli degil.</p>}
-        {product.modifiers.map((modifier) => (
-          <div key={modifier.id} className="border-b border-slate-100 py-2 last:border-0">
-            <div className="flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => setExpandedModifierId((id) => (id === modifier.id ? null : modifier.id))}
-                className="flex-1 text-left text-slate-700"
-              >
-                <span className="font-semibold">{modifier.name}</span>: +{formatMoney(modifier.priceDelta)}{' '}
-                <span className="text-sm text-slate-400">({modifier.ingredients.length} malzeme)</span>
-              </button>
-              <button
-                onClick={() => onDeleteModifier(modifier.id)}
-                className="text-red-500 hover:text-red-700"
-              >
-                Sil
-              </button>
-            </div>
-
-            {expandedModifierId === modifier.id && (
-              <div className="mt-2 rounded-lg bg-slate-50 p-3">
-                {modifier.ingredients.length === 0 && (
-                  <p className="mb-2 text-sm text-slate-400">Bu ekstra icin malzeme etkisi tanimli degil (sadece fiyat).</p>
-                )}
-                {modifier.ingredients.map((bom) => (
-                  <div key={bom.ingredientId} className="flex items-center justify-between py-1">
-                    <span className="text-sm text-slate-600">
-                      {bom.ingredient.name}: {bom.usageAmount} {bom.ingredient.unit}
-                    </span>
-                    <button
-                      onClick={() => onRemoveModifierIngredient(modifier.id, bom.ingredientId)}
-                      className="text-xs text-red-500 hover:text-red-700"
-                    >
-                      Cikar
-                    </button>
-                  </div>
-                ))}
-
-                <form onSubmit={(e) => handleAddIngredient(e, modifier.id)} className="mt-2 flex items-end gap-2">
-                  <select
-                    value={ingredientId}
-                    onChange={(e) => setIngredientId(e.target.value)}
-                    className="h-10 flex-1 rounded-lg border border-slate-300 px-2 text-sm"
-                    required
-                  >
-                    <option value="" disabled>Malzeme secin...</option>
-                    {allIngredients.map((ing) => (
-                      <option key={ing.id} value={ing.id}>{ing.name} ({ing.unit})</option>
-                    ))}
-                  </select>
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    value={usageAmount}
-                    onChange={(e) => setUsageAmount(e.target.value)}
-                    placeholder="Miktar"
-                    className="h-10 w-24 rounded-lg border border-slate-300 px-2 text-sm"
-                    required
-                  />
-                  <button type="submit" className="h-10 rounded-lg bg-indigo-600 px-3 text-sm font-semibold text-white hover:bg-indigo-700">
-                    Ekle
-                  </button>
-                </form>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      <form onSubmit={handleCreate} className="border-t border-slate-200 pt-4">
-        <p className="mb-2 font-semibold text-slate-700">Yeni Ekstra Ekle</p>
-
-        <select
-          value={presetName}
-          onChange={(e) => handlePresetChange(e.target.value)}
-          className="mb-3 h-12 w-full rounded-xl border border-slate-300 px-3 text-lg"
-          required
-        >
-          <option value="" disabled>Ekstra secin...</option>
-          {knownModifiers.map((preset) => (
-            <option key={preset.name} value={preset.name}>{preset.name}</option>
-          ))}
-          <option value="custom">Ozel (elle giris)</option>
-        </select>
-
-        {isCustom && (
-          <input
-            value={customName}
-            onChange={(e) => setCustomName(e.target.value)}
-            placeholder="Ekstra adi"
-            className="mb-3 h-12 w-full rounded-xl border border-slate-300 px-3 text-lg"
-            required
-          />
-        )}
-
-        <div className="flex gap-2">
-          <input
-            type="number"
-            step="any"
-            min="0"
-            value={priceDelta}
-            onChange={(e) => setPriceDelta(e.target.value)}
-            placeholder="Fiyat Eki"
-            className="h-12 w-full rounded-xl border border-slate-300 px-3 text-lg"
-            required
-          />
-        </div>
-
-        {selectedPreset && selectedPreset.ingredients.length > 0 && (
-          <p className="mt-2 text-sm text-slate-500">
-            Secildiginde otomatik olarak eklenecek: {selectedPreset.ingredients
-              .map((link) => {
-                const ing = allIngredients.find((i) => i.id === link.ingredientId);
-                return `${link.usageAmount}${ing?.unit ?? ''} ${ing?.name ?? '?'}`;
-              })
-              .join(', ')}.
-          </p>
-        )}
-
-        {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
-
-        <button
-          type="submit"
-          disabled={isSubmitting || createPending}
-          className="mt-3 h-12 w-full rounded-xl bg-indigo-600 text-lg font-semibold text-white hover:bg-indigo-700 disabled:bg-slate-300"
-        >
-          {isSubmitting || createPending ? 'Ekleniyor...' : 'Ekstra Ekle'}
-        </button>
-      </form>
-    </Modal>
-  );
-}
-
 export default function ProductsPage() {
   const queryClient = useQueryClient();
-  const [modal, setModal] = useState(null); // { type: 'create'|'edit'|'recipe'|'variants'|'modifiers', product? }
+  const [modal, setModal] = useState(null); // { type: 'create'|'edit'|'recipe'|'variants', product? }
   const [formError, setFormError] = useState('');
   const [includeInactive, setIncludeInactive] = useState(false);
 
@@ -569,7 +327,7 @@ export default function ProductsPage() {
   const ingredientsQuery = useQuery({
     queryKey: ['ingredients'],
     queryFn: () => apiFetch('/ingredients'),
-    enabled: modal?.type === 'recipe' || modal?.type === 'variants' || modal?.type === 'modifiers',
+    enabled: modal?.type === 'recipe' || modal?.type === 'variants',
   });
 
   function closeModal() {
@@ -637,41 +395,13 @@ export default function ProductsPage() {
     onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Islem basarisiz oldu.'),
   });
 
-  const createModifierMutation = useMutation({
-    mutationFn: (body) => apiFetch(`/products/${modal.product.id}/modifiers`, { method: 'POST', body }),
-    onSuccess: () => { invalidateProducts(); setFormError(''); },
-    onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Islem basarisiz oldu.'),
-  });
-
-  const deleteModifierMutation = useMutation({
-    mutationFn: (modifierId) => apiFetch(`/products/${modal.product.id}/modifiers/${modifierId}`, { method: 'DELETE' }),
-    onSuccess: () => invalidateProducts(),
-    onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Islem basarisiz oldu.'),
-  });
-
-  const addModifierIngredientMutation = useMutation({
-    mutationFn: ({ modifierId, body }) =>
-      apiFetch(`/products/${modal.product.id}/modifiers/${modifierId}/ingredients`, { method: 'POST', body }),
-    onSuccess: () => { invalidateProducts(); setFormError(''); },
-    onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Islem basarisiz oldu.'),
-  });
-
-  const removeModifierIngredientMutation = useMutation({
-    mutationFn: ({ modifierId, ingredientId }) =>
-      apiFetch(`/products/${modal.product.id}/modifiers/${modifierId}/ingredients/${ingredientId}`, {
-        method: 'DELETE',
-      }),
-    onSuccess: () => invalidateProducts(),
-    onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Islem basarisiz oldu.'),
-  });
-
   const products = productsQuery.data?.products ?? [];
 
-  // Recete/Boylar/Ekstralar modali acikken urun listesi tazelenirse (yeni
-  // malzeme/boy/ekstra eklendiginde oldugu gibi), modalin de guncel veriyi
-  // gostermesi icin taze listeden ayni urunu tekrar buluyoruz.
+  // Recete/Boylar modali acikken urun listesi tazelenirse (yeni malzeme/boy
+  // eklendiginde oldugu gibi), modalin de guncel veriyi gostermesi icin taze
+  // listeden ayni urunu tekrar buluyoruz.
   const activeModalProduct =
-    modal?.type === 'recipe' || modal?.type === 'variants' || modal?.type === 'modifiers'
+    modal?.type === 'recipe' || modal?.type === 'variants'
       ? products.find((p) => p.id === modal.product.id) ?? modal.product
       : modal?.product;
 
@@ -714,7 +444,6 @@ export default function ProductsPage() {
                   <th className="px-5 py-3">Fiyat</th>
                   <th className="px-5 py-3">Recete</th>
                   <th className="px-5 py-3">Boylar</th>
-                  <th className="px-5 py-3">Ekstralar</th>
                   <th className="px-5 py-3"></th>
                 </tr>
               </thead>
@@ -743,9 +472,6 @@ export default function ProductsPage() {
                     <td className="px-5 py-3 text-slate-500">
                       {p.variants.length === 0 ? 'yok' : `${p.variants.length} boy`}
                     </td>
-                    <td className="px-5 py-3 text-slate-500">
-                      {p.modifiers.length === 0 ? 'yok' : `${p.modifiers.length} ekstra`}
-                    </td>
                     <td className="px-5 py-3">
                       <div className="flex justify-end gap-2">
                         {p.variants.length === 0 && (
@@ -761,12 +487,6 @@ export default function ProductsPage() {
                           className="rounded-lg bg-slate-100 px-3 py-2 font-medium text-slate-600 hover:bg-slate-200"
                         >
                           Boylar
-                        </button>
-                        <button
-                          onClick={() => { setFormError(''); setModal({ type: 'modifiers', product: p }); }}
-                          className="rounded-lg bg-slate-100 px-3 py-2 font-medium text-slate-600 hover:bg-slate-200"
-                        >
-                          Ekstralar
                         </button>
                         <button
                           onClick={() => { setFormError(''); setModal({ type: 'edit', product: p }); }}
@@ -830,23 +550,6 @@ export default function ProductsPage() {
             removeVariantIngredientMutation.mutate({ variantId, ingredientId })
           }
           createPending={createVariantMutation.isPending}
-          error={formError}
-        />
-      )}
-
-      {modal?.type === 'modifiers' && activeModalProduct && (
-        <ModifiersModal
-          product={activeModalProduct}
-          allProducts={products}
-          allIngredients={ingredientsQuery.data?.ingredients ?? []}
-          onClose={closeModal}
-          onCreateModifier={(body) => createModifierMutation.mutateAsync(body)}
-          onDeleteModifier={(modifierId) => deleteModifierMutation.mutate(modifierId)}
-          onAddModifierIngredient={(modifierId, body) => addModifierIngredientMutation.mutateAsync({ modifierId, body })}
-          onRemoveModifierIngredient={(modifierId, ingredientId) =>
-            removeModifierIngredientMutation.mutate({ modifierId, ingredientId })
-          }
-          createPending={createModifierMutation.isPending}
           error={formError}
         />
       )}
