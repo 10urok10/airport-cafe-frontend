@@ -119,7 +119,7 @@ function ProductMarginsSection() {
             </thead>
             <tbody>
               {data.products.map((p) => (
-                <tr key={p.productId} className="border-t border-slate-100">
+                <tr key={`${p.productId}-${p.variantId ?? 'base'}`} className="border-t border-slate-100">
                   <td className="px-5 py-3 font-medium text-slate-800">
                     {p.name}
                     {!p.costDataComplete && (
