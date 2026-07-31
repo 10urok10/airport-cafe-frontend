@@ -311,21 +311,20 @@ function VariantsModal({
   );
 }
 
-// Sik kullanilan ekstralarin hazir listesi: admin bunlari elle yazip sonra
-// ayrica malzeme baglamak yerine tek secimle hem fiyati hem malzeme etkisini
-// (ingredientName, envanterdeki isimle eslesir) hazir alir. Listede olmayan
-// bir ekstra icin "Ozel" secenegi eski (elle giris) davranisi korur.
-const MODIFIER_PRESETS = [
-  { key: 'ekstra-shot', name: 'Ekstra Shot', priceDelta: 10, ingredientName: 'Espresso Roast Coffee', usageAmount: 18 },
-  { key: 'yulaf-sutu', name: 'Yulaf Sutu', priceDelta: 5, ingredientName: 'Yulaf Sutu', usageAmount: 200 },
-];
-
 // Bir urunun ekstralarini (Ekstra Shot, Yulaf Sutu gibi) yonetir - VariantsModal
 // ile ayni desen, tek fark boyun aksine ayni anda birden fazla ekstra
 // siparise eklenebilir ve fiyat eki (priceDelta) 0 olabilir (orn. ucretsiz
 // bir tercih).
+//
+// "Yeni Ekstra Ekle" secenekleri sabit/hardcoded degil: allProducts icindeki
+// TUM urunlerin ekstralarindan (isme gore tekillestirilip) turetilir. Yani
+// "Ozel (elle giris)" ile herhangi bir urune yeni bir ekstra girildiginde, o
+// ekstra otomatik olarak diger urunler icin de secenek listesine girer -
+// Ingredient tablosu urune bagli olmadigindan (global) ayni ingredientId
+// baska bir urunun modifier'ina da dogrudan kopyalanabilir.
 function ModifiersModal({
   product,
+  allProducts,
   allIngredients,
   onClose,
   onCreateModifier,
@@ -336,7 +335,7 @@ function ModifiersModal({
   error,
 }) {
   const [expandedModifierId, setExpandedModifierId] = useState(null);
-  const [presetKey, setPresetKey] = useState('');
+  const [presetName, setPresetName] = useState('');
   const [customName, setCustomName] = useState('');
   const [priceDelta, setPriceDelta] = useState('');
   const [ingredientId, setIngredientId] = useState('');
@@ -346,27 +345,44 @@ function ModifiersModal({
   // tiklanabilir olmasini bu ayri state ile engelliyoruz.
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const selectedPreset = MODIFIER_PRESETS.find((p) => p.key === presetKey);
-  const isCustom = presetKey === 'custom';
+  const existingNames = new Set(product.modifiers.map((m) => m.name));
+  const knownModifiers = [];
+  const seenNames = new Set();
+  for (const p of allProducts) {
+    for (const m of p.modifiers) {
+      if (seenNames.has(m.name) || existingNames.has(m.name)) continue;
+      seenNames.add(m.name);
+      knownModifiers.push({
+        name: m.name,
+        priceDelta: Number(m.priceDelta),
+        ingredients: m.ingredients.map((bom) => ({ ingredientId: bom.ingredientId, usageAmount: Number(bom.usageAmount) })),
+      });
+    }
+  }
+  knownModifiers.sort((a, b) => a.name.localeCompare(b.name));
 
-  function handlePresetChange(key) {
-    setPresetKey(key);
-    const preset = MODIFIER_PRESETS.find((p) => p.key === key);
+  const selectedPreset = knownModifiers.find((p) => p.name === presetName);
+  const isCustom = presetName === 'custom';
+
+  function handlePresetChange(name) {
+    setPresetName(name);
+    const preset = knownModifiers.find((p) => p.name === name);
     setPriceDelta(preset ? String(preset.priceDelta) : '');
   }
 
-  // Hazir bir ekstra secildiyse: once modifier'i olustur, sonra (ingredientName
-  // envanterde varsa) onun malzeme baglantisini OTOMATIK ekle - admin ayrica
-  // "malzeme ekle" formunu doldurmak zorunda kalmaz. "Ozel" secildiyse eski
-  // davranis: sadece isim+fiyat, malzeme baglantisi elle (asagidaki mini
-  // formdan) eklenir.
+  // Bilinen bir ekstra secildiyse: once modifier'i olustur, sonra onun tum
+  // malzeme baglantilarini (baska bir urundeki ayni isimli ekstradan kopyalanir)
+  // OTOMATIK ekle - admin ayrica "malzeme ekle" formunu doldurmak zorunda
+  // kalmaz. "Ozel" secildiyse eski davranis: sadece isim+fiyat, malzeme
+  // baglantisi elle (asagidaki mini formdan) eklenir - ve o andan itibaren bu
+  // yeni isim de diger urunler icin bilinen ekstralar listesine girer.
   async function handleCreate(e) {
     e.preventDefault();
     if (isSubmitting) return;
     setIsSubmitting(true);
 
     try {
-      const name = selectedPreset ? selectedPreset.name : customName;
+      const name = isCustom ? customName : presetName;
       let created;
       try {
         created = await onCreateModifier({ name, priceDelta: Number(priceDelta) });
@@ -375,16 +391,16 @@ function ModifiersModal({
       }
 
       if (selectedPreset) {
-        const ingredient = allIngredients.find((ing) => ing.name === selectedPreset.ingredientName);
-        if (ingredient) {
+        for (const link of selectedPreset.ingredients) {
+          // eslint-disable-next-line no-await-in-loop
           await onAddModifierIngredient(created.modifier.id, {
-            ingredientId: ingredient.id,
-            usageAmount: selectedPreset.usageAmount,
+            ingredientId: link.ingredientId,
+            usageAmount: link.usageAmount,
           }).catch(() => {});
         }
       }
 
-      setPresetKey('');
+      setPresetName('');
       setCustomName('');
       setPriceDelta('');
     } finally {
@@ -477,14 +493,14 @@ function ModifiersModal({
         <p className="mb-2 font-semibold text-slate-700">Yeni Ekstra Ekle</p>
 
         <select
-          value={presetKey}
+          value={presetName}
           onChange={(e) => handlePresetChange(e.target.value)}
           className="mb-3 h-12 w-full rounded-xl border border-slate-300 px-3 text-lg"
           required
         >
           <option value="" disabled>Ekstra secin...</option>
-          {MODIFIER_PRESETS.map((preset) => (
-            <option key={preset.key} value={preset.key}>{preset.name}</option>
+          {knownModifiers.map((preset) => (
+            <option key={preset.name} value={preset.name}>{preset.name}</option>
           ))}
           <option value="custom">Ozel (elle giris)</option>
         </select>
@@ -512,9 +528,14 @@ function ModifiersModal({
           />
         </div>
 
-        {selectedPreset && (
+        {selectedPreset && selectedPreset.ingredients.length > 0 && (
           <p className="mt-2 text-sm text-slate-500">
-            Secildiginde otomatik olarak {selectedPreset.usageAmount} {allIngredients.find((i) => i.name === selectedPreset.ingredientName)?.unit ?? ''} {selectedPreset.ingredientName} eklenecek.
+            Secildiginde otomatik olarak eklenecek: {selectedPreset.ingredients
+              .map((link) => {
+                const ing = allIngredients.find((i) => i.id === link.ingredientId);
+                return `${link.usageAmount}${ing?.unit ?? ''} ${ing?.name ?? '?'}`;
+              })
+              .join(', ')}.
           </p>
         )}
 
@@ -816,6 +837,7 @@ export default function ProductsPage() {
       {modal?.type === 'modifiers' && activeModalProduct && (
         <ModifiersModal
           product={activeModalProduct}
+          allProducts={products}
           allIngredients={ingredientsQuery.data?.ingredients ?? []}
           onClose={closeModal}
           onCreateModifier={(body) => createModifierMutation.mutateAsync(body)}
