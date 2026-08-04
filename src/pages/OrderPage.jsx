@@ -80,15 +80,27 @@ export default function OrderPage() {
   function finishAddingBaseLine(product, productId, variantId, name, price) {
     addLineToCart(productId, variantId, name, price);
     if (product.extraOptions && product.extraOptions.length > 0) {
-      setExtrasPickerContext({ product, baseKey: cartLineKey(productId, variantId), baseName: name });
+      setExtrasPickerContext({
+        product,
+        baseKey: cartLineKey(productId, variantId),
+        baseName: name,
+        baseProductId: productId,
+        baseVariantId: variantId,
+      });
     }
   }
 
+  // linkedToProductId/linkedToVariantId siparis olusturulunca backend'e
+  // gonderilir ve OrderItem'a kaydedilir - bu sayede Mutfak ekrani da (sadece
+  // bu sepet oturumunda degil, kalici siparis kaydinda) "Ekstra Shot -
+  // Americano icin" baglantisini gosterebilir (bkz. backend CLAUDE.md).
   function addExtraToCart(extra) {
     if (!extrasPickerContext) return;
     addLineToCart(extra.id, null, extra.name, extra.price, {
       key: extrasPickerContext.baseKey,
       label: extrasPickerContext.baseName,
+      productId: extrasPickerContext.baseProductId,
+      variantId: extrasPickerContext.baseVariantId,
     });
   }
 
@@ -105,7 +117,17 @@ export default function OrderPage() {
       }
       return [
         ...prev,
-        { productId, variantId, name, price, quantity: 1, linkedToKey: link?.key ?? null, linkedToName: link?.label ?? null },
+        {
+          productId,
+          variantId,
+          name,
+          price,
+          quantity: 1,
+          linkedToKey: link?.key ?? null,
+          linkedToName: link?.label ?? null,
+          linkedToProductId: link?.productId ?? null,
+          linkedToVariantId: link?.variantId ?? null,
+        },
       ];
     });
   }
@@ -148,6 +170,8 @@ export default function OrderPage() {
             productId: item.productId,
             variantId: item.variantId,
             quantity: item.quantity,
+            linkedToProductId: item.linkedToProductId ?? null,
+            linkedToVariantId: item.linkedToVariantId ?? null,
           })),
         },
       }),

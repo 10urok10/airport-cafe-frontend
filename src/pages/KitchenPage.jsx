@@ -37,9 +37,17 @@ function OrderCard({ order, actionLabel, onAction, onCancel, actionPending }) {
 
       <ul className="mb-3 text-slate-600">
         {order.items.map((item) => (
-          <li key={item.id}>
+          <li key={item.id} className={item.linkedToProduct ? 'ml-4 text-slate-500' : ''}>
+            {item.linkedToProduct && <span className="mr-1 text-indigo-400">↳</span>}
             {item.quantity}x {item.product.name}
             {item.variant && ` (${item.variant.name})`}
+            {item.linkedToProduct && (
+              <span className="text-sm text-indigo-500">
+                {' '}
+                · {item.linkedToProduct.name}
+                {item.linkedToVariant && ` (${item.linkedToVariant.name})`} icin
+              </span>
+            )}
           </li>
         ))}
       </ul>
