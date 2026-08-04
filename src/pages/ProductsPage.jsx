@@ -345,9 +345,83 @@ function VariantsModal({
   );
 }
 
+// Bir urune ("Americano") hangi ekstralarin ("Ekstra Shot" gibi) siparis
+// ekraninda birlikte sunulacagini isaretler - stok/receteye dokunmaz,
+// sadece mevcut "Ekstralar" kategorisindeki urunlerden secim yaptirir. Bu
+// eslesme hicbir siparisi referans almadigi icin (bkz. backend CLAUDE.md),
+// gecmiste kac kez siparis edilmis olursa olsun her zaman kisitlamasiz
+// kaldirilabilir.
+function ExtrasModal({ product, allExtraProducts, onClose, onLink, onUnlink, linkPending, error }) {
+  const [selectedExtraId, setSelectedExtraId] = useState('');
+
+  const linkedIds = new Set(product.extraOptions.map((eo) => eo.extraId));
+  const availableExtras = allExtraProducts.filter((p) => !linkedIds.has(p.id));
+
+  function handleLink(e) {
+    e.preventDefault();
+    onLink({ extraId: Number(selectedExtraId) });
+    setSelectedExtraId('');
+  }
+
+  return (
+    <Modal title={`Ekstralar: ${product.name}`} onClose={onClose}>
+      <div className="mb-4 max-h-72 overflow-y-auto">
+        {product.extraOptions.length === 0 && <p className="text-slate-400">Baglanmis ekstra yok.</p>}
+        {product.extraOptions.map((eo) => (
+          <div
+            key={eo.extraId}
+            className="flex items-center justify-between border-b border-slate-100 py-2 last:border-0"
+          >
+            <span className="text-slate-700">
+              {eo.extra.name} <span className="text-sm text-slate-400">({formatMoney(eo.extra.price)})</span>
+            </span>
+            <button onClick={() => onUnlink(eo.extraId)} className="text-red-500 hover:text-red-700">
+              Kaldir
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <form onSubmit={handleLink} className="border-t border-slate-200 pt-4">
+        <p className="mb-2 font-semibold text-slate-700">Ekstra Bagla</p>
+        {availableExtras.length === 0 ? (
+          <p className="text-sm text-slate-400">
+            Baglanacak ekstra yok - once "Ekstralar" kategorisinde bir urun olusturun.
+          </p>
+        ) : (
+          <div className="flex gap-2">
+            <select
+              value={selectedExtraId}
+              onChange={(e) => setSelectedExtraId(e.target.value)}
+              className="h-12 flex-1 rounded-xl border border-slate-300 px-3 text-lg"
+              required
+            >
+              <option value="" disabled>Ekstra secin...</option>
+              {availableExtras.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({formatMoney(p.price)})
+                </option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              disabled={linkPending}
+              className="h-12 rounded-xl bg-indigo-600 px-5 text-lg font-semibold text-white hover:bg-indigo-700 disabled:bg-slate-300"
+            >
+              Ekle
+            </button>
+          </div>
+        )}
+
+        {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+      </form>
+    </Modal>
+  );
+}
+
 export default function ProductsPage() {
   const queryClient = useQueryClient();
-  const [modal, setModal] = useState(null); // { type: 'create'|'edit'|'recipe'|'variants', product? }
+  const [modal, setModal] = useState(null); // { type: 'create'|'edit'|'recipe'|'variants'|'extras', product? }
   const [formError, setFormError] = useState('');
   const [includeInactive, setIncludeInactive] = useState(false);
 
@@ -429,13 +503,26 @@ export default function ProductsPage() {
     onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Islem basarisiz oldu.'),
   });
 
-  const products = productsQuery.data?.products ?? [];
+  const addExtraMutation = useMutation({
+    mutationFn: (body) => apiFetch(`/products/${modal.product.id}/extras`, { method: 'POST', body }),
+    onSuccess: () => { invalidateProducts(); setFormError(''); },
+    onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Islem basarisiz oldu.'),
+  });
 
-  // Recete/Boylar modali acikken urun listesi tazelenirse (yeni malzeme/boy
-  // eklendiginde oldugu gibi), modalin de guncel veriyi gostermesi icin taze
-  // listeden ayni urunu tekrar buluyoruz.
+  const removeExtraMutation = useMutation({
+    mutationFn: (extraId) => apiFetch(`/products/${modal.product.id}/extras/${extraId}`, { method: 'DELETE' }),
+    onSuccess: () => invalidateProducts(),
+    onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Islem basarisiz oldu.'),
+  });
+
+  const products = productsQuery.data?.products ?? [];
+  const extraProducts = products.filter((p) => p.category === 'Ekstralar' && p.isActive);
+
+  // Recete/Boylar/Ekstralar modali acikken urun listesi tazelenirse (yeni
+  // malzeme/boy/ekstra eklendiginde oldugu gibi), modalin de guncel veriyi
+  // gostermesi icin taze listeden ayni urunu tekrar buluyoruz.
   const activeModalProduct =
-    modal?.type === 'recipe' || modal?.type === 'variants'
+    modal?.type === 'recipe' || modal?.type === 'variants' || modal?.type === 'extras'
       ? products.find((p) => p.id === modal.product.id) ?? modal.product
       : modal?.product;
 
@@ -478,6 +565,7 @@ export default function ProductsPage() {
                   <th className="px-5 py-3">Fiyat</th>
                   <th className="px-5 py-3">Recete</th>
                   <th className="px-5 py-3">Boylar</th>
+                  <th className="px-5 py-3">Ekstralar</th>
                   <th className="px-5 py-3"></th>
                 </tr>
               </thead>
@@ -506,6 +594,13 @@ export default function ProductsPage() {
                     <td className="px-5 py-3 text-slate-500">
                       {p.variants.length === 0 ? 'yok' : `${p.variants.length} boy`}
                     </td>
+                    <td className="px-5 py-3 text-slate-500">
+                      {p.category === 'Ekstralar'
+                        ? '-'
+                        : p.extraOptions.length === 0
+                          ? 'yok'
+                          : `${p.extraOptions.length} ekstra`}
+                    </td>
                     <td className="px-5 py-3">
                       <div className="flex justify-end gap-2">
                         {p.variants.length === 0 && (
@@ -522,6 +617,14 @@ export default function ProductsPage() {
                         >
                           Boylar
                         </button>
+                        {p.category !== 'Ekstralar' && (
+                          <button
+                            onClick={() => { setFormError(''); setModal({ type: 'extras', product: p }); }}
+                            className="rounded-lg bg-slate-100 px-3 py-2 font-medium text-slate-600 hover:bg-slate-200"
+                          >
+                            Ekstralar
+                          </button>
+                        )}
                         <button
                           onClick={() => { setFormError(''); setModal({ type: 'edit', product: p }); }}
                           className="rounded-lg bg-slate-100 px-3 py-2 font-medium text-slate-600 hover:bg-slate-200"
@@ -585,6 +688,18 @@ export default function ProductsPage() {
             removeVariantIngredientMutation.mutate({ variantId, ingredientId })
           }
           createPending={createVariantMutation.isPending}
+          error={formError}
+        />
+      )}
+
+      {modal?.type === 'extras' && activeModalProduct && (
+        <ExtrasModal
+          product={activeModalProduct}
+          allExtraProducts={extraProducts}
+          onClose={closeModal}
+          onLink={(body) => addExtraMutation.mutate(body)}
+          onUnlink={(extraId) => removeExtraMutation.mutate(extraId)}
+          linkPending={addExtraMutation.isPending}
           error={formError}
         />
       )}

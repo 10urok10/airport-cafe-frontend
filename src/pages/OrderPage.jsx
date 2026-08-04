@@ -12,19 +12,26 @@ const PAYMENT_METHODS = [
 
 // Sepette bir kalemi tekil olarak tanimlayan anahtar: ayni urunun "Orta"su
 // ile "Buyuk"u ayri satirlar olmali, sadece productId'ye gore eslestirmek
-// bunlari yanlislikla birlestirirdi.
-function cartLineKey(productId, variantId) {
-  return `${productId}-${variantId ?? 'base'}`;
+// bunlari yanlislikla birlestirirdi. linkedToKey, bir ekstranin hangi baz
+// urune bagli eklendigini ayirt eder - orn. "Ekstra Shot" hem tek basina
+// (Ekstralar sekmesinden) hem de "Americano icin" baglanarak eklenebilir;
+// bunlar ayni productId'yi paylassa da linkedToKey farkli oldugundan iki
+// ayri sepet satiri olarak kalir, miktarlari birbirine karismaz.
+function cartLineKey(productId, variantId, linkedToKey) {
+  return `${productId}-${variantId ?? 'base'}-${linkedToKey ?? 'none'}`;
 }
 
 export default function OrderPage() {
   const queryClient = useQueryClient();
 
-  const [cart, setCart] = useState([]); // [{ productId, variantId, name, price, quantity }]
+  const [cart, setCart] = useState([]); // [{ productId, variantId, name, price, quantity, linkedToKey, linkedToName }]
   const [selectedCategory, setSelectedCategory] = useState('Tumu');
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [isStaffOrder, setIsStaffOrder] = useState(false);
   const [sizeModalProduct, setSizeModalProduct] = useState(null); // boy secimi bekleyen urun
+  // Bir urun sepete eklendikten sonra, o urune baglanmis ekstralari (bkz.
+  // ProductsPage'deki "Ekstralar" yonetimi) sormak icin: { product, baseKey, baseName }
+  const [extrasPickerContext, setExtrasPickerContext] = useState(null);
   const [feedback, setFeedback] = useState(null); // { type: 'success'|'error', message }
   // Ayni siparisin yanlislikla iki kez gonderilmesine karsi (orn. cift
   // tiklama), backend'in idempotencyKey mekanizmasini kullaniyoruz. Basarili
@@ -58,33 +65,57 @@ export default function OrderPage() {
       setSizeModalProduct(product);
       return;
     }
-    addLineToCart(product.id, null, product.name, product.price);
+    finishAddingBaseLine(product, product.id, null, product.name, product.price);
   }
 
   function addVariantToCart(product, variant) {
-    addLineToCart(product.id, variant.id, `${product.name} (${variant.name})`, variant.price);
     setSizeModalProduct(null);
+    finishAddingBaseLine(product, product.id, variant.id, `${product.name} (${variant.name})`, variant.price);
   }
 
-  function addLineToCart(productId, variantId, name, price) {
+  // Boy secimi (varsa) tamamlandiktan sonra ortak devam noktasi: baz kalemi
+  // sepete ekler, urune baglanmis ekstralar varsa (bkz. ProductsPage'deki
+  // "Ekstralar" eslesmesi) bunlari sormak icin ekstra secim modalini acar -
+  // "Americano sectikten sonra Ekstra Shot secmek" akisi tam burada kurulur.
+  function finishAddingBaseLine(product, productId, variantId, name, price) {
+    addLineToCart(productId, variantId, name, price);
+    if (product.extraOptions && product.extraOptions.length > 0) {
+      setExtrasPickerContext({ product, baseKey: cartLineKey(productId, variantId), baseName: name });
+    }
+  }
+
+  function addExtraToCart(extra) {
+    if (!extrasPickerContext) return;
+    addLineToCart(extra.id, null, extra.name, extra.price, {
+      key: extrasPickerContext.baseKey,
+      label: extrasPickerContext.baseName,
+    });
+  }
+
+  function addLineToCart(productId, variantId, name, price, link = null) {
+    const key = cartLineKey(productId, variantId, link?.key);
     setCart((prev) => {
-      const existing = prev.find((item) => item.productId === productId && item.variantId === variantId);
+      const existing = prev.find((item) => cartLineKey(item.productId, item.variantId, item.linkedToKey) === key);
       if (existing) {
         return prev.map((item) =>
-          item.productId === productId && item.variantId === variantId
+          cartLineKey(item.productId, item.variantId, item.linkedToKey) === key
             ? { ...item, quantity: item.quantity + 1 }
             : item
         );
       }
-      return [...prev, { productId, variantId, name, price, quantity: 1 }];
+      return [
+        ...prev,
+        { productId, variantId, name, price, quantity: 1, linkedToKey: link?.key ?? null, linkedToName: link?.label ?? null },
+      ];
     });
   }
 
-  function changeQuantity(productId, variantId, delta) {
+  function changeQuantity(productId, variantId, linkedToKey, delta) {
+    const key = cartLineKey(productId, variantId, linkedToKey);
     setCart((prev) =>
       prev
         .map((item) =>
-          item.productId === productId && item.variantId === variantId
+          cartLineKey(item.productId, item.variantId, item.linkedToKey) === key
             ? { ...item, quantity: item.quantity + delta }
             : item
         )
@@ -92,8 +123,9 @@ export default function OrderPage() {
     );
   }
 
-  function removeFromCart(productId, variantId) {
-    setCart((prev) => prev.filter((item) => !(item.productId === productId && item.variantId === variantId)));
+  function removeFromCart(productId, variantId, linkedToKey) {
+    const key = cartLineKey(productId, variantId, linkedToKey);
+    setCart((prev) => prev.filter((item) => cartLineKey(item.productId, item.variantId, item.linkedToKey) !== key));
   }
 
   const total = cart.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0);
@@ -205,27 +237,36 @@ export default function OrderPage() {
           <div className="mb-4 flex-1 overflow-y-auto">
             {cart.length === 0 && <p className="text-slate-400">Sepet bos. Urune tiklayin.</p>}
             {cart.map((item) => (
-              <div key={cartLineKey(item.productId, item.variantId)} className="mb-3 flex items-center justify-between gap-2">
+              <div
+                key={cartLineKey(item.productId, item.variantId, item.linkedToKey)}
+                className={`mb-3 flex items-center justify-between gap-2 ${item.linkedToName ? 'ml-4 border-l-2 border-indigo-200 pl-3' : ''}`}
+              >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium text-slate-800">{item.name}</p>
-                  <p className="text-sm text-slate-500">{formatMoney(item.price)}</p>
+                  <p className="truncate font-medium text-slate-800">
+                    {item.linkedToName && <span className="mr-1 text-indigo-400">↳</span>}
+                    {item.name}
+                  </p>
+                  <p className="text-sm text-slate-500">
+                    {formatMoney(item.price)}
+                    {item.linkedToName && <span className="ml-1 text-indigo-500">· {item.linkedToName} icin</span>}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => changeQuantity(item.productId, item.variantId, -1)}
+                    onClick={() => changeQuantity(item.productId, item.variantId, item.linkedToKey, -1)}
                     className="h-8 w-8 rounded-lg bg-slate-100 text-lg font-bold text-slate-600 hover:bg-slate-200"
                   >
                     -
                   </button>
                   <span className="w-6 text-center font-semibold">{item.quantity}</span>
                   <button
-                    onClick={() => changeQuantity(item.productId, item.variantId, 1)}
+                    onClick={() => changeQuantity(item.productId, item.variantId, item.linkedToKey, 1)}
                     className="h-8 w-8 rounded-lg bg-slate-100 text-lg font-bold text-slate-600 hover:bg-slate-200"
                   >
                     +
                   </button>
                   <button
-                    onClick={() => removeFromCart(item.productId, item.variantId)}
+                    onClick={() => removeFromCart(item.productId, item.variantId, item.linkedToKey)}
                     className="ml-1 text-red-500 hover:text-red-700"
                     aria-label="Sil"
                   >
@@ -304,6 +345,43 @@ export default function OrderPage() {
               </button>
             ))}
           </div>
+        </Modal>
+      )}
+
+      {extrasPickerContext && (
+        <Modal
+          title={`${extrasPickerContext.baseName} - Ekstra Eklemek Ister misiniz?`}
+          onClose={() => setExtrasPickerContext(null)}
+        >
+          <div className="flex flex-col gap-3">
+            {extrasPickerContext.product.extraOptions.map((eo) => {
+              const addedCount =
+                cart.find(
+                  (item) =>
+                    cartLineKey(item.productId, item.variantId, item.linkedToKey) ===
+                    cartLineKey(eo.extra.id, null, extrasPickerContext.baseKey)
+                )?.quantity ?? 0;
+              return (
+                <button
+                  key={eo.extraId}
+                  onClick={() => addExtraToCart(eo.extra)}
+                  className="flex items-center justify-between rounded-xl bg-slate-100 px-5 py-4 text-lg font-semibold text-slate-700 transition hover:bg-indigo-600 hover:text-white active:scale-95"
+                >
+                  <span>
+                    {eo.extra.name}
+                    {addedCount > 0 && <span className="ml-2 text-sm font-normal">(x{addedCount} eklendi)</span>}
+                  </span>
+                  <span>{formatMoney(eo.extra.price)}</span>
+                </button>
+              );
+            })}
+          </div>
+          <button
+            onClick={() => setExtrasPickerContext(null)}
+            className="mt-4 h-12 w-full rounded-xl bg-emerald-600 text-lg font-semibold text-white hover:bg-emerald-700"
+          >
+            Tamam
+          </button>
         </Modal>
       )}
     </div>
